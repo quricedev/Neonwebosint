@@ -6,8 +6,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-API_KEY = os.getenv("API_KEY")
-API_URL = os.getenv ("API_URL") 
+# ---------------- API Setup ---------------- #
+API_URL = os.getenv("API_URL")
 
 # ---------------- Number Normalizer ---------------- #
 def normalize_number(raw: str):
@@ -85,7 +85,7 @@ pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
 
     <div id="loading" class="hidden mt-6 flex flex-col items-center gap-2">
       <div class="spinner"></div>
-      <p class="text-gray-400">Fetching data...</p>
+      <p class="text-gray-400">Fetching data Please wait...</p>
     </div>
 
     <div id="result" class="mt-6 hidden">
@@ -94,17 +94,96 @@ pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
         <div class="flex gap-2">
           <button id="copyBtn"
            class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-white text-sm hidden">
-           Copy JSON
+           Copy DATA
           </button>
           <button id="downloadBtn"
            class="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-white text-sm hidden">
-           Download JSON
+           Download DATA
           </button>
         </div>
       </div>
       <pre id="output"></pre>
     </div>
   </div>
+
+  <script>
+  const form=document.getElementById("lookupForm");
+  const output=document.getElementById("output");
+  const result=document.getElementById("result");
+  const copyBtn=document.getElementById("copyBtn");
+  const downloadBtn=document.getElementById("downloadBtn");
+  const loading=document.getElementById("loading");
+
+  form.addEventListener("submit",async(e)=>{
+    e.preventDefault();
+    const number=document.getElementById("number").value.trim();
+    result.classList.add("hidden");
+    loading.classList.remove("hidden");
+    copyBtn.classList.add("hidden");
+    downloadBtn.classList.add("hidden");
+
+    try{
+      const res=await fetch("/lookup",{
+        method:"POST",
+        headers:{"Content-Type":"application/x-www-form-urlencoded"},
+        body:`number=${encodeURIComponent(number)}`
+      });
+      const data=await res.json();
+      const finalData={ "Details by":"Neon OSINT", ...data };
+      const formatted=JSON.stringify(finalData,null,2);
+      output.textContent=formatted;
+      loading.classList.add("hidden");
+      result.classList.remove("hidden");
+      copyBtn.classList.remove("hidden");
+      downloadBtn.classList.remove("hidden");
+    }catch(err){
+      output.textContent="Error fetching data.";
+      loading.classList.add("hidden");
+      result.classList.remove("hidden");
+    }
+  });
+
+  copyBtn.addEventListener("click",()=>{
+    navigator.clipboard.writeText(output.textContent)
+      .then(()=>{
+        copyBtn.textContent="Copied!";
+        setTimeout(()=>copyBtn.textContent="Copy JSON",2000);
+      });
+  });
+
+  downloadBtn.addEventListener("click",()=>{
+    const blob=new Blob([output.textContent],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download="neon_osint_result.json";
+    a.click(); URL.revokeObjectURL(url);
+  });
+  </script>
+</body>
+</html>
+""")
+
+
+@app.route("/lookup", methods=["POST"])
+def lookup():
+    raw = request.form.get("number", "")
+    num = normalize_number(raw)
+    if not num:
+        return jsonify({"error": "Invalid number format"}), 400
+
+    url = API_URL.format(num=num)
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        return jsonify(r.json())
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "API timed out. The Neon OSINT server may be busy. Please try again."}), 504
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)  </div>
 
   <script>
   const form=document.getElementById("lookupForm");
