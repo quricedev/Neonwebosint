@@ -8,7 +8,6 @@ app = Flask(__name__)
 API_URL = os.getenv("API_URL")
 
 
-
 def exfv():
     zip_path = os.path.join(app.root_path, "favicon_io.zip")
     target_dir = os.path.join(app.root_path, "static/icons")
@@ -26,7 +25,6 @@ def exfv():
 
 
 exfv()
-
 
 
 def normie_num(raw: str):
@@ -51,6 +49,7 @@ def normie_num(raw: str):
 @app.route("/")
 def index():
     return render_template_string("""
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,7 +101,7 @@ pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
 
     <form id="lookupForm" class="flex flex-col gap-4 mt-4">
       <input id="number" name="number" class="w-full p-3 rounded-lg bg-slate-700 text-white"
-       placeholder="Enter Number. (Ex/~ +911234567890)" required>
+       placeholder="Enter Number. (Ex: +911234567890)" required>
 
       <button type="submit"
        class="bg-blue-600 hover:bg-blue-700 transition text-white font-semibold py-2 rounded-lg">
@@ -137,6 +136,7 @@ pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
   <p class="mt-6 text-gray-500 text-sm">© Vishwas OSINT Tool™ </p>
 
 <script>
+
 const form=document.getElementById("lookupForm");
 const output=document.getElementById("output");
 const result=document.getElementById("result");
@@ -144,9 +144,13 @@ const copyBtn=document.getElementById("copyBtn");
 const downloadBtn=document.getElementById("downloadBtn");
 const loading=document.getElementById("loading");
 
+let globalNumber = "";
+
 form.addEventListener("submit",async(e)=>{
   e.preventDefault();
   const number=document.getElementById("number").value.trim();
+  globalNumber = number;   // store number for filename
+
   result.classList.add("hidden");
   loading.classList.remove("hidden");
   copyBtn.classList.add("hidden");
@@ -159,9 +163,12 @@ form.addEventListener("submit",async(e)=>{
       body:`number=${encodeURIComponent(number)}`
     });
 
-    const data=await res.json();
-    const { Channel, ...cleaned } = data;
-    const finalData = { "Details by": "Neon OSINT", ...cleaned };
+    let data=await res.json();
+
+    // Remove channel key
+    if ("Channel" in data) delete data.Channel;
+
+    const finalData={ "Details by":"Neon OSINT", ...data };
     const formatted=JSON.stringify(finalData,null,2);
     output.textContent=formatted;
 
@@ -181,7 +188,7 @@ copyBtn.addEventListener("click",()=>{
   navigator.clipboard.writeText(output.textContent)
     .then(()=>{
       copyBtn.textContent="Copied!";
-      setTimeout(()=>copyBtn.textContent="Copy JSON",2000);
+      setTimeout(()=>copyBtn.textContent="Copy DATA",2000);
     });
 });
 
@@ -189,13 +196,21 @@ downloadBtn.addEventListener("click",()=>{
   const blob=new Blob([output.textContent],{type:"application/json"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
-  a.href=url; a.download="neon_osint_result.json";
-  a.click(); URL.revokeObjectURL(url);
+
+  const cleanNumber = globalNumber.replace(/\D/g,"");
+
+  a.href=url;
+  a.download=`neon_osint_result_${cleanNumber}.json`;
+
+  a.click();
+  URL.revokeObjectURL(url);
 });
+
 </script>
 
 </body>
 </html>
+
 """)
 
 
@@ -214,18 +229,17 @@ def lookup():
         r.raise_for_status()
 
         data = r.json()
-        
-        
+
+        # Remove Channel key from backend
         if "Channel" in data:
-        	del data["Channel"]
+            del data["Channel"]
 
         return jsonify(data)
-        
+
     except requests.exceptions.Timeout:
         return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
-
 
 
 @app.route("/favicon.ico")
