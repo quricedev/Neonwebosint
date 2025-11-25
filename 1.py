@@ -197,7 +197,7 @@ downloadBtn.addEventListener("click",()=>{
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
 
-  const cleanNumber = globalNumber.replace(/\D/g,"");
+  const cleanNumber = globalNumber.replace(/\\D/g,"");
 
   a.href=url;
   a.download=`neon_osint_result_${cleanNumber}.json`;
