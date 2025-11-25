@@ -93,22 +93,7 @@ pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
             Search
           </button>
 
-          <!-- Invisible AD Layer (captures click) -->
-          <div id="adLayer">
-            <script type="text/javascript">
-                atOptions = {
-                    'key' : '8be2d382201766506186d8c6555818fa',
-                    'format' : 'iframe',
-                    'height' : 250,
-                    'width' : 300,
-                    'params' : {}
-                };
-            </script>
-            <script type="text/javascript" src="//www.highperformanceformat.com/8be2d382201766506186d8c6555818fa/invoke.js"></script>
-          </div>
-
-      </div>
-      <!-- END WRAPPER -->
+          
 
     </form>        
       
