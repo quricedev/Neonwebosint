@@ -211,7 +211,15 @@ def lookup():
     try:
         r = requests.get(url, timeout=20)
         r.raise_for_status()
-        return jsonify(r.json())
+
+        data = r.json()
+        
+        
+        if "Channel" in data:
+        	del data["Channel"]
+
+        return jsonify(data)
+        
     except requests.exceptions.Timeout:
         return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
     except requests.exceptions.RequestException as e:
