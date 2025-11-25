@@ -160,7 +160,8 @@ form.addEventListener("submit",async(e)=>{
     });
 
     const data=await res.json();
-    const finalData={ "Details by":"Neon OSINT", ...data };
+    const { Channel, ...cleaned } = data;
+    const finalData = { "Details by": "Neon OSINT", ...cleaned };
     const formatted=JSON.stringify(finalData,null,2);
     output.textContent=formatted;
 
