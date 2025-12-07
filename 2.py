@@ -15,7 +15,7 @@ keys_coll_name = "api_keys"
 bot_token = os.getenv("TELEGRAM_TOKEN")
 admin_id = int(os.getenv("ADMIN_ID"))
 host = os.getenv("APP_HOST")
-port = int(os.getenv("APP_PORT))
+port = int(os.getenv("APP_PORT"))
 public_url = os.getenv("PUBLIC_URL")  
 
 app = Flask(__name__)
