@@ -112,7 +112,7 @@ body {
   padding:2rem;
   box-shadow:0 0 20px rgba(0,0,0,.3);
   border:2px solid transparent;
-  animation: borderGlow 2s linear infinite;
+  animation: borderGlow 5s linear infinite;
 }
 @keyframes borderGlow {
   0%   { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
