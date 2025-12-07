@@ -13,10 +13,10 @@ mongo_uri = os.getenv("MONGO_URI")
 db_name = os.getenv("DB_NAME", "neonosint")
 keys_coll_name = "api_keys"
 bot_token = os.getenv("TELEGRAM_TOKEN")
-admin_id = int(os.getenv("ADMIN_ID"))
-host = os.getenv("APP_HOST")
-port = int(os.getenv("APP_PORT"))
-public_url = os.getenv("PUBLIC_URL")  
+admin_id = int(os.getenv("ADMIN_ID", "0"))
+host = os.getenv("APP_HOST", "0.0.0.0")
+port = int(os.getenv("APP_PORT", "5000"))
+public_url = os.getenv("PUBLIC_URL", "")  
 
 app = Flask(__name__)
 
@@ -31,6 +31,9 @@ def exfv():
             z.extractall(target_dir)
 
 exfv()
+
+if not mongo_uri:
+    raise RuntimeError("MONGO_URI not set in environment")
 
 client = MongoClient(mongo_uri)
 db = client[db_name]
@@ -112,10 +115,20 @@ body {
   animation: borderGlow 2s linear infinite;
 }
 @keyframes borderGlow {
-  0% { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }
-  33% { border-color:#a855f7; box-shadow:0 0 15px #a855f7; }
-  66% { border-color:#22c55e; box-shadow:0 0 15px #22c55e; }
-  100% { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }
+  0%   { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
+  8%   { border-color:#a855f7; box-shadow:0 0 12px #a855f7; }  
+  15%  { border-color:#22c55e; box-shadow:0 0 12px #22c55e; }  
+  23%  { border-color:#f97316; box-shadow:0 0 13px #f97316; }  
+  31%  { border-color:#ef4444; box-shadow:0 0 13px #ef4444; }  
+  38%  { border-color:#f59e0b; box-shadow:0 0 14px #f59e0b; }  
+  46%  { border-color:#ec4899; box-shadow:0 0 14px #ec4899; }  
+  54%  { border-color:#06b6d4; box-shadow:0 0 15px #06b6d4; }  
+  62%  { border-color:#60a5fa; box-shadow:0 0 15px #60a5fa; }  
+  69%  { border-color:#84cc16; box-shadow:0 0 15px #84cc16; }  
+  77%  { border-color:#8b5cf6; box-shadow:0 0 16px #8b5cf6; }  
+  85%  { border-color:#fb7185; box-shadow:0 0 16px #fb7185; }  
+  92%  { border-color:#10b981; box-shadow:0 0 16px #10b981; }  
+  100% { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
 }
 .spinner {
   border:4px solid rgba(255,255,255,0.1);
@@ -246,31 +259,41 @@ def lookup():
     if not num:
         return jsonify({"error": "Invalid number format"}), 400
     if not api_url:
-        return jsonify({"error": "Friend API not configured"}), 500
+        return jsonify({"error": "API backend not configured"}), 500
+
     url = api_url.format(num=num)
     try:
         r = requests.get(url, timeout=20)
         r.raise_for_status()
         data = r.json()
-        if "Channel" in data:
+
+        if isinstance(data, dict) and "Channel" in data:
             del data["Channel"]
+
+        if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
+            return jsonify({"error": "No data found"}), 404
+
         return jsonify(data)
+
     except requests.exceptions.Timeout:
         return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+    except requests.exceptions.RequestException:
+        return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
 
 @app.route("/number-to-info", methods=["GET"])
 def number_to_info():
     key = request.args.get("api_key", "")
     raw_number = request.args.get("number", "")
+
     if not key:
         return jsonify({"error": "Missing api_key"}), 400
     if not raw_number:
         return jsonify({"error": "Missing number parameter"}), 400
+
     doc = get_key_doc(key)
     if not doc or not doc.get("active", False):
         return jsonify({"error": "Invalid or inactive API key"}), 401
+
     now = datetime.datetime.utcnow()
     exp = doc.get("expires_at")
     if isinstance(exp, str):
@@ -278,27 +301,41 @@ def number_to_info():
             exp = datetime.datetime.fromisoformat(exp)
         except Exception:
             exp = None
+
     if exp and exp < now:
         keys_col.update_one({"key": key}, {"$set": {"active": False}})
         return jsonify({"error": "The api key is expired, DM @UseSir for new api key"}), 401
+
     num = normie_num(raw_number)
     if not num:
         return jsonify({"error": "Invalid number format"}), 400
+
     if not api_url:
-        return jsonify({"error": "Friend API not configured"}), 500
+        return jsonify({"error": "API backend not configured"}), 500
+
     url = api_url.format(num=num)
     try:
         r = requests.get(url, timeout=20)
         r.raise_for_status()
         data = r.json()
+
         if isinstance(data, dict) and "Channel" in data:
             del data["Channel"]
-        wrapped = {"Details By": "@UseSir", "data": data, "Footer": "Details By: @UseSir"}
+
+        if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
+            return jsonify({"error": "No data found. Details By: @UseSir"}), 404
+
+        wrapped = {
+            "Details By": "@UseSir",
+            "data": data,
+            "Footer": "Details By: @UseSir"
+        }
         return jsonify(wrapped)
+
     except requests.exceptions.Timeout:
-        return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Server is busy, please try again later. Details By: @UseSir"}), 504
+    except requests.exceptions.RequestException:
+        return jsonify({"error": "Upstream API error. Contact @UseSir for support."}), 502
 
 @app.route("/favicon.ico")
 def favicon():
@@ -321,7 +358,11 @@ def build_public_base():
 if bot:
     @bot.message_handler(commands=['help'])
     def handle_help(message):
-        bot.send_message(message.chat.id, "Commands:\n/genkey <name> <days>\n/list\n/rework <name>\n/help")
+        bot.send_message(message.chat.id, "Commands:\n/genkey <name> <days>\n/list\n/rework <name>\n/delkey <key-or-name>\n/help")
+
+    @bot.message_handler(commands=["start"])
+    def handle_start(message):
+        bot.send_message(message.chat.id, "welcome @UseSir \nbot is Alice, Use /help for commands")
 
     @bot.message_handler(commands=['list'])
     def handle_list(message):
@@ -396,31 +437,34 @@ if bot:
             f"curl example:\n{curl_example}\n"
         )
         bot.send_message(message.chat.id, msg, parse_mode='Markdown')
-@bot.message_handler(commands=['delkey'])
-def handle_delkey(message):
-    if not is_admin(message.from_user.id):
-        bot.reply_to(message, "Unauthorized.")
-        return
 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2 or not parts[1].strip():
-        bot.reply_to(message, "Usage: /delkey <key-or-name>")
-        return
+    @bot.message_handler(commands=['delkey'])
+    def handle_delkey(message):
+        if not is_admin(message.from_user.id):
+            bot.reply_to(message, "Unauthorized.")
+            return
 
-    target = parts[1].strip()
-    res_key = keys_col.delete_one({"key": target})
-    if res_key.deleted_count:
-        bot.send_message(message.chat.id, f"Deleted key `{target}` (1 key removed).", parse_mode='Markdown')
-        return
+        parts = message.text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            bot.reply_to(message, "Usage: /delkey <key-or-name>")
+            return
 
-    res_name = keys_col.delete_many({"name": target})
-    if res_name.deleted_count:
-        bot.send_message(message.chat.id,
-                         f"Deleted {res_name.deleted_count} key(s) with name `{target}`.",
-                         parse_mode='Markdown')
-    else:
-        bot.send_message(message.chat.id, "No matching key or name found.", parse_mode='Markdown')
-        
+        target = parts[1].strip()
+        res_key = keys_col.delete_one({"key": target})
+        if res_key.deleted_count:
+            bot.send_message(message.chat.id, f"Deleted key `{target}` (1 key removed).", parse_mode='Markdown')
+            handle_list(message)
+            return
+
+        res_name = keys_col.delete_many({"name": target})
+        if res_name.deleted_count:
+            bot.send_message(message.chat.id,
+                             f"Deleted {res_name.deleted_count} key(s) with name `{target}`.",
+                             parse_mode='Markdown')
+            handle_list(message)
+        else:
+            bot.send_message(message.chat.id, "No matching key or name found.", parse_mode='Markdown')
+
 def start_bot():
     if not bot:
         return
