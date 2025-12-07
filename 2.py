@@ -13,10 +13,10 @@ mongo_uri = os.getenv("MONGO_URI")
 db_name = os.getenv("DB_NAME", "neonosint")
 keys_coll_name = "api_keys"
 bot_token = os.getenv("TELEGRAM_TOKEN")
-admin_id = int(os.getenv("ADMIN_ID", "0"))
-host = os.getenv("APP_HOST", "0.0.0.0")
-port = int(os.getenv("APP_PORT", "5000"))
-public_url = os.getenv("PUBLIC_URL", "")  # optional, e.g. https://neonosint.onrender.com
+admin_id = int(os.getenv("ADMIN_ID"))
+host = os.getenv("APP_HOST")
+port = int(os.getenv("APP_PORT))
+public_url = os.getenv("PUBLIC_URL")  
 
 app = Flask(__name__)
 
@@ -396,7 +396,31 @@ if bot:
             f"curl example:\n{curl_example}\n"
         )
         bot.send_message(message.chat.id, msg, parse_mode='Markdown')
+@bot.message_handler(commands=['delkey'])
+def handle_delkey(message):
+    if not is_admin(message.from_user.id):
+        bot.reply_to(message, "Unauthorized.")
+        return
 
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        bot.reply_to(message, "Usage: /delkey <key-or-name>")
+        return
+
+    target = parts[1].strip()
+    res_key = keys_col.delete_one({"key": target})
+    if res_key.deleted_count:
+        bot.send_message(message.chat.id, f"Deleted key `{target}` (1 key removed).", parse_mode='Markdown')
+        return
+
+    res_name = keys_col.delete_many({"name": target})
+    if res_name.deleted_count:
+        bot.send_message(message.chat.id,
+                         f"Deleted {res_name.deleted_count} key(s) with name `{target}`.",
+                         parse_mode='Markdown')
+    else:
+        bot.send_message(message.chat.id, "No matching key or name found.", parse_mode='Markdown')
+        
 def start_bot():
     if not bot:
         return
