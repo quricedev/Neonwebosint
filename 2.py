@@ -5,6 +5,8 @@ import pyfiglet
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 import telebot
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 load_dotenv()
 
@@ -17,6 +19,7 @@ admin_id = int(os.getenv("ADMIN_ID", "0"))
 host = os.getenv("APP_HOST", "0.0.0.0")
 port = int(os.getenv("APP_PORT", "5000"))
 public_url = os.getenv("PUBLIC_URL", "")
+start_bot_env = os.getenv("START_BOT", "0")
 
 app = Flask(__name__)
 
@@ -44,8 +47,15 @@ try:
 except Exception:
     pass
 
-# reuse a single session for upstream calls to improve performance
 http = requests.Session()
+
+adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=Retry(
+    total=1, backoff_factor=0.1, status_forcelist=(500, 502, 503, 504)
+))
+http.mount("http://", adapter)
+http.mount("https://", adapter)
+
+http.headers.update({"Connection": "keep-alive", "User-Agent": "Neon-OSINT-Proxy/1.0"})
 
 def normie_num(raw: str):
     digits = re.sub(r"\D", "", raw)
@@ -68,7 +78,7 @@ def gen_key():
 
 def create_key(name: str, days: int):
     key = gen_key()
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.datetime.utcnow() if hasattr(datetime, "datetime") else datetime.utcnow()
     exp = now + datetime.timedelta(days=days)
     doc = {"key": key, "name": name, "created_at": now, "expires_at": exp, "active": True}
     try:
@@ -100,96 +110,42 @@ SITE_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Neon OSINT</title>
-
 <link rel="icon" type="image/x-icon" href="/static/icons/favicon.ico">
 <script src="https://cdn.tailwindcss.com"></script>
-
 <style>
-body {
-  background:#0f172a; color:#f1f5f9;
-  font-family:'Inter',sans-serif;
-}
-.card {
-  background:#1e293b;
-  border-radius:1rem;
-  padding:2rem;
-  box-shadow:0 0 20px rgba(0,0,0,.3);
-  border:2px solid transparent;
-  animation: borderGlow 2s linear infinite;
-}
-@keyframes borderGlow {
-  0%   { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
-  8%   { border-color:#a855f7; box-shadow:0 0 12px #a855f7; }  
-  15%  { border-color:#22c55e; box-shadow:0 0 12px #22c55e; }  
-  23%  { border-color:#f97316; box-shadow:0 0 13px #f97316; }  
-  31%  { border-color:#ef4444; box-shadow:0 0 13px #ef4444; }  
-  38%  { border-color:#f59e0b; box-shadow:0 0 14px #f59e0b; }  
-  46%  { border-color:#ec4899; box-shadow:0 0 14px #ec4899; }  
-  54%  { border-color:#06b6d4; box-shadow:0 0 15px #06b6d4; }  
-  62%  { border-color:#60a5fa; box-shadow:0 0 15px #60a5fa; }  
-  69%  { border-color:#84cc16; box-shadow:0 0 15px #84cc16; }  
-  77%  { border-color:#8b5cf6; box-shadow:0 0 16px #8b5cf6; }  
-  85%  { border-color:#fb7185; box-shadow:0 0 16px #fb7185; }  
-  92%  { border-color:#10b981; box-shadow:0 0 16px #10b981; }  
-  100% { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
-}
-.spinner {
-  border:4px solid rgba(255,255,255,0.1);
-  border-top:4px solid #38bdf8;
-  border-radius:50%;
-  width:40px; height:40px;
-  animation: spin 1s linear infinite;
-  margin:auto;
-}
+body { background:#0f172a; color:#f1f5f9; font-family:'Inter',sans-serif; }
+.card { background:#1e293b; border-radius:1rem; padding:2rem; box-shadow:0 0 20px rgba(0,0,0,.3); border:2px solid transparent; animation: borderGlow 2s linear infinite; }
+@keyframes borderGlow { 0% { border-color:#38bdf8; } 25% { border-color:#a855f7; } 50% { border-color:#22c55e; } 75% { border-color:#f97316; } 100% { border-color:#38bdf8; } }
+.spinner { border:4px solid rgba(255,255,255,0.1); border-top:4px solid #38bdf8; border-radius:50%; width:40px; height:40px; animation: spin 1s linear infinite; margin:auto; }
 @keyframes spin {from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 button,input{outline:none;}
-pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;}
+pre{background:#0f172a;padding:1rem;border-radius:.75rem;overflow-x:auto;color:#e2e8f0;}
 </style>
 </head>
-
 <body class="flex flex-col items-center justify-center min-h-screen px-4">
-
   <h1 class="text-4xl font-bold mb-1 text-blue-400">NEON OSINT 🔍</h1>
   <h3 class="text-gray-400 mb-6 text-lg">Number to Information Tool</h3>
-
   <div class="card w-full max-w-lg">
-
     <form id="lookupForm" class="flex flex-col gap-4 mt-4">
-      <input id="number" name="number" class="w-full p-3 rounded-lg bg-slate-700 text-white"
-       placeholder="Enter Number. (Ex/~ +911234567890)" required>
-
-      <button type="submit"
-       class="bg-blue-600 hover:bg-blue-700 transition text-white font-semibold py-2 rounded-lg">
-       Search
-      </button>
+      <input id="number" name="number" class="w-full p-3 rounded-lg bg-slate-700 text-white" placeholder="Enter Number. (Ex/~ +911234567890)" required>
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 transition text-white font-semibold py-2 rounded-lg">Search</button>
     </form>
-
     <div id="loading" class="hidden mt-6 flex flex-col items-center gap-2">
       <div class="spinner"></div>
       <p class="text-gray-400">Fetching data Please wait...</p>
     </div>
-
     <div id="result" class="mt-6 hidden">
       <div class="flex justify-between items-center mb-2 gap-2">
         <h2 class="text-lg font-semibold">Result:</h2>
         <div class="flex gap-2">
-          <button id="copyBtn"
-           class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-white text-sm hidden">
-           Copy DATA
-          </button>
-          <button id="downloadBtn"
-           class="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-white text-sm hidden">
-           Download DATA
-          </button>
+          <button id="copyBtn" class="bg-green-600 hover:bg-green-700 px-3 py-1 rounded text-white text-sm hidden">Copy DATA</button>
+          <button id="downloadBtn" class="bg-purple-600 hover:bg-purple-700 px-3 py-1 rounded text-white text-sm hidden">Download DATA</button>
         </div>
       </div>
       <pre id="output"></pre>
     </div>
-
   </div>
-
   <p class="mt-6 text-gray-500 text-sm">© Vishwas OSINT Tool™ </p>
-
 <script>
 const form=document.getElementById("lookupForm");
 const output=document.getElementById("output");
@@ -197,7 +153,6 @@ const result=document.getElementById("result");
 const copyBtn=document.getElementById("copyBtn");
 const downloadBtn=document.getElementById("downloadBtn");
 const loading=document.getElementById("loading");
-
 form.addEventListener("submit",async(e)=>{
   e.preventDefault();
   const number=document.getElementById("number").value.trim();
@@ -205,31 +160,26 @@ form.addEventListener("submit",async(e)=>{
   loading.classList.remove("hidden");
   copyBtn.classList.add("hidden");
   downloadBtn.classList.add("hidden");
-
   try{
     const res=await fetch("/lookup",{
       method:"POST",
       headers:{"Content-Type":"application/x-www-form-urlencoded"},
       body:`number=${encodeURIComponent(number)}`
     });
-
     const data=await res.json();
     const finalData={ "Details by":"Neon OSINT", ...data };
     const formatted=JSON.stringify(finalData,null,2);
     output.textContent=formatted;
-
     loading.classList.add("hidden");
     result.classList.remove("hidden");
     copyBtn.classList.remove("hidden");
     downloadBtn.classList.remove("hidden");
-
   }catch(err){
     output.textContent="Error fetching data.";
     loading.classList.add("hidden");
     result.classList.remove("hidden");
   }
 });
-
 copyBtn.addEventListener("click",()=>{
   navigator.clipboard.writeText(output.textContent)
     .then(()=>{
@@ -237,7 +187,6 @@ copyBtn.addEventListener("click",()=>{
       setTimeout(()=>copyBtn.textContent="Copy JSON",2000);
     });
 });
-
 downloadBtn.addEventListener("click",()=>{
   const blob=new Blob([output.textContent],{type:"application/json"});
   const url=URL.createObjectURL(blob);
@@ -246,7 +195,6 @@ downloadBtn.addEventListener("click",()=>{
   a.click(); URL.revokeObjectURL(url);
 });
 </script>
-
 </body>
 </html>
 """
@@ -263,6 +211,7 @@ def lookup():
         return jsonify({"error": "Invalid number format"}), 400
     if not api_url:
         return jsonify({"error": "API backend not configured"}), 500
+
     url = api_url.format(num=num)
     try:
         r = http.get(url, timeout=20)
@@ -292,7 +241,7 @@ def number_to_info():
     if not doc or not doc.get("active", False):
         return jsonify({"error": "Invalid or inactive API key"}), 401
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.datetime.utcnow() if hasattr(datetime, "datetime") else datetime.utcnow()
     exp = doc.get("expires_at")
     if isinstance(exp, str):
         try:
@@ -304,8 +253,7 @@ def number_to_info():
         keys_col.update_one({"key": key}, {"$set": {"active": False}})
         return jsonify({"error": "The api key is expired, DM @UseSir for new api key"}), 401
 
-    # NOTE: per your request we don't run the number normalizer here,
-    # we use raw_number directly to save time.
+    # use raw_number directly for speed (no normalization)
     num = raw_number
 
     if not api_url:
@@ -321,7 +269,6 @@ def number_to_info():
         if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
             return jsonify({"error": "No data found. Details By: @UseSir"}), 404
 
-        # attach Description inside the data object and wrap with Owner key
         if isinstance(data, dict):
             data_with_desc = dict(data)
             data_with_desc["Description"] = "Details By: @UseSir"
@@ -355,6 +302,19 @@ def build_public_base():
     if host in ("0.0.0.0", "127.0.0.1"):
         return f"http://localhost:{port}"
     return f"http://{host}:{port}"
+
+if bot and public_url:
+    @app.route(f"/telegram_webhook/{bot_token}", methods=["POST"])
+    def telegram_webhook():
+        json_data = request.get_json(force=True)
+        if not json_data:
+            return "", 400
+        try:
+            update = telebot.types.Update.de_json(json_data)
+            bot.process_new_updates([update])
+        except Exception:
+            pass
+        return "", 200
 
 if bot:
     @bot.message_handler(commands=['help'])
@@ -399,7 +359,7 @@ if bot:
             return
         doc = create_key(name, days)
         exp = doc.get("expires_at")
-        exp_s = exp.strftime("%Y-%m-%d %H:%M UTC")
+        exp_s = exp.strftime("%Y-%m-%d %H:%M UTC") if isinstance(exp, datetime.datetime) else str(exp)
         base = build_public_base()
         api_full = f"{base}/number-to-info?apikey={doc.get('key')}&number=<num>"
         example = f"{base}/number-to-info?apikey={doc.get('key')}&number=9123456789"
@@ -456,14 +416,12 @@ if bot:
             return
         res_name = keys_col.delete_many({"name": target})
         if res_name.deleted_count:
-            bot.send_message(message.chat.id,
-                             f"Deleted {res_name.deleted_count} key(s) with name `{target}`.",
-                             parse_mode='Markdown')
+            bot.send_message(message.chat.id, f"Deleted {res_name.deleted_count} key(s) with name `{target}`.", parse_mode='Markdown')
             handle_list(message)
         else:
             bot.send_message(message.chat.id, "No matching key or name found.", parse_mode='Markdown')
 
-def start_bot():
+def start_bot_polling():
     if not bot:
         return
     def target():
@@ -474,8 +432,21 @@ def start_bot():
     t = threading.Thread(target=target, daemon=True)
     t.start()
 
+def set_webhook_if_configured():
+    if not bot or not public_url:
+        return
+    webhook_url = f"{public_url.rstrip('/')}/telegram_webhook/{bot_token}"
+    try:
+        bot.remove_webhook()
+        bot.set_webhook(webhook_url)
+    except Exception:
+
+        pass
+
 if __name__ == "__main__":
     ascii_art = pyfiglet.figlet_format("INDia", font="isometric1")
     print(ascii_art)
-    start_bot()
-    
+    set_webhook_if_configured()
+    if start_bot_env == "1":
+        start_bot_polling()
+    app.run(host=host, port=port, threaded=True)
