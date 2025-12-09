@@ -44,6 +44,7 @@ try:
 except Exception:
     pass
 
+# reuse a single session for upstream calls to improve performance
 http = requests.Session()
 
 def normie_num(raw: str):
@@ -281,13 +282,16 @@ def lookup():
 def number_to_info():
     key = request.args.get("apikey", "")
     raw_number = request.args.get("number", "")
+
     if not key:
         return jsonify({"error": "Missing apikey"}), 400
     if not raw_number:
         return jsonify({"error": "Missing number parameter"}), 400
+
     doc = get_key_doc(key)
     if not doc or not doc.get("active", False):
         return jsonify({"error": "Invalid or inactive API key"}), 401
+
     now = datetime.datetime.utcnow()
     exp = doc.get("expires_at")
     if isinstance(exp, str):
@@ -295,28 +299,35 @@ def number_to_info():
             exp = datetime.datetime.fromisoformat(exp)
         except Exception:
             exp = None
+
     if exp and exp < now:
         keys_col.update_one({"key": key}, {"$set": {"active": False}})
         return jsonify({"error": "The api key is expired, DM @UseSir for new api key"}), 401
-    num = normie_num(raw_number)
-    if not num:
-        return jsonify({"error": "Invalid number format"}), 400
+
+    # NOTE: per your request we don't run the number normalizer here,
+    # we use raw_number directly to save time.
+    num = raw_number
+
     if not api_url:
         return jsonify({"error": "API backend not configured"}), 500
-   url = api_url.format(num=num)
+
+    url = api_url.format(num=num)
     try:
-        r = requests.get(url, timeout=20)
+        r = http.get(url, timeout=20)
         r.raise_for_status()
         data = r.json()
         if isinstance(data, dict) and "Channel" in data:
             del data["Channel"]
         if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
             return jsonify({"error": "No data found. Details By: @UseSir"}), 404
+
+        # attach Description inside the data object and wrap with Owner key
         if isinstance(data, dict):
             data_with_desc = dict(data)
             data_with_desc["Description"] = "Details By: @UseSir"
         else:
             data_with_desc = {"items": data, "Description": "Details By: @UseSir"}
+
         wrapped = {
             "Owner": "@UseSir",
             "data": data_with_desc
@@ -463,6 +474,8 @@ def start_bot():
     t = threading.Thread(target=target, daemon=True)
     t.start()
 
-ascii_art = pyfiglet.figlet_format("PHAK YOU", font="isometric1")
-print(ascii_art)
-start_bot()
+if __name__ == "__main__":
+    ascii_art = pyfiglet.figlet_format("INDia", font="isometric1")
+    print(ascii_art)
+    start_bot()
+    app.run(host=host, port=port)
