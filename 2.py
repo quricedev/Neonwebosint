@@ -11,12 +11,12 @@ load_dotenv()
 api_url = os.getenv("API_URL")
 mongo_uri = os.getenv("MONGO_URI")
 db_name = os.getenv("DB_NAME", "neonosint")
-keys_coll_name = "api_keys"
+keys_coll_name = "apikeys"
 bot_token = os.getenv("TELEGRAM_TOKEN")
 admin_id = int(os.getenv("ADMIN_ID", "0"))
 host = os.getenv("APP_HOST", "0.0.0.0")
 port = int(os.getenv("APP_PORT", "5000"))
-public_url = os.getenv("PUBLIC_URL", "")  
+public_url = os.getenv("PUBLIC_URL", "")
 
 app = Flask(__name__)
 
@@ -43,6 +43,8 @@ try:
     keys_col.create_index("name")
 except Exception:
     pass
+
+http = requests.Session()
 
 def normie_num(raw: str):
     digits = re.sub(r"\D", "", raw)
@@ -112,7 +114,7 @@ body {
   padding:2rem;
   box-shadow:0 0 20px rgba(0,0,0,.3);
   border:2px solid transparent;
-  animation: borderGlow 5s linear infinite;
+  animation: borderGlow 2s linear infinite;
 }
 @keyframes borderGlow {
   0%   { border-color:#38bdf8; box-shadow:0 0 10px #38bdf8; }  
@@ -260,21 +262,16 @@ def lookup():
         return jsonify({"error": "Invalid number format"}), 400
     if not api_url:
         return jsonify({"error": "API backend not configured"}), 500
-
     url = api_url.format(num=num)
     try:
-        r = requests.get(url, timeout=20)
+        r = http.get(url, timeout=20)
         r.raise_for_status()
         data = r.json()
-
         if isinstance(data, dict) and "Channel" in data:
             del data["Channel"]
-
         if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
             return jsonify({"error": "No data found"}), 404
-
         return jsonify(data)
-
     except requests.exceptions.Timeout:
         return jsonify({"error": "The Neon OSINT server may be busy. Please try again.."}), 504
     except requests.exceptions.RequestException:
@@ -282,18 +279,15 @@ def lookup():
 
 @app.route("/number-to-info", methods=["GET"])
 def number_to_info():
-    key = request.args.get("api_key", "")
+    key = request.args.get("apikey", "")
     raw_number = request.args.get("number", "")
-
     if not key:
-        return jsonify({"error": "Missing api_key"}), 400
+        return jsonify({"error": "Missing apikey"}), 400
     if not raw_number:
         return jsonify({"error": "Missing number parameter"}), 400
-
     doc = get_key_doc(key)
     if not doc or not doc.get("active", False):
         return jsonify({"error": "Invalid or inactive API key"}), 401
-
     now = datetime.datetime.utcnow()
     exp = doc.get("expires_at")
     if isinstance(exp, str):
@@ -301,37 +295,33 @@ def number_to_info():
             exp = datetime.datetime.fromisoformat(exp)
         except Exception:
             exp = None
-
     if exp and exp < now:
         keys_col.update_one({"key": key}, {"$set": {"active": False}})
         return jsonify({"error": "The api key is expired, DM @UseSir for new api key"}), 401
-
     num = normie_num(raw_number)
     if not num:
         return jsonify({"error": "Invalid number format"}), 400
-
     if not api_url:
         return jsonify({"error": "API backend not configured"}), 500
-
-    url = api_url.format(num=num)
+   url = api_url.format(num=num)
     try:
         r = requests.get(url, timeout=20)
         r.raise_for_status()
         data = r.json()
-
         if isinstance(data, dict) and "Channel" in data:
             del data["Channel"]
-
         if (data is None) or (isinstance(data, dict) and not data) or (isinstance(data, list) and len(data) == 0):
             return jsonify({"error": "No data found. Details By: @UseSir"}), 404
-
+        if isinstance(data, dict):
+            data_with_desc = dict(data)
+            data_with_desc["Description"] = "Details By: @UseSir"
+        else:
+            data_with_desc = {"items": data, "Description": "Details By: @UseSir"}
         wrapped = {
-            "Details By": "@UseSir",
-            "data": data,
-            "Footer": "Details By: @UseSir"
+            "Owner": "@UseSir",
+            "data": data_with_desc
         }
         return jsonify(wrapped)
-
     except requests.exceptions.Timeout:
         return jsonify({"error": "Server is busy, please try again later. Details By: @UseSir"}), 504
     except requests.exceptions.RequestException:
@@ -400,8 +390,8 @@ if bot:
         exp = doc.get("expires_at")
         exp_s = exp.strftime("%Y-%m-%d %H:%M UTC")
         base = build_public_base()
-        api_full = f"{base}/number-to-info?api_key={doc.get('key')}&number=<num>"
-        example = f"{base}/number-to-info?api_key={doc.get('key')}&number=9123456789"
+        api_full = f"{base}/number-to-info?apikey={doc.get('key')}&number=<num>"
+        example = f"{base}/number-to-info?apikey={doc.get('key')}&number=9123456789"
         msg = (
             f"Key generated for `{name}`\n\n"
             f"Key: `{doc.get('key')}`\n"
@@ -426,8 +416,8 @@ if bot:
         exp = doc.get("expires_at")
         exp_s = exp.strftime("%Y-%m-%d %H:%M UTC") if isinstance(exp, datetime.datetime) else str(exp)
         base = build_public_base()
-        api_example_link = f"{base}/number-to-info?api_key={doc.get('key')}&number=9123456789"
-        curl_example = f"curl \"{base}/number-to-info?api_key={doc.get('key')}&number=9123456789\""
+        api_example_link = f"{base}/number-to-info?apikey={doc.get('key')}&number=9123456789"
+        curl_example = f"curl \"{base}/number-to-info?apikey={doc.get('key')}&number=9123456789\""
         msg = (
             f"Reworked `{name}`\n\n"
             f"Deactivated: {deactivated} key(s)\n"
@@ -443,19 +433,16 @@ if bot:
         if not is_admin(message.from_user.id):
             bot.reply_to(message, "Unauthorized.")
             return
-
         parts = message.text.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
             bot.reply_to(message, "Usage: /delkey <key-or-name>")
             return
-
         target = parts[1].strip()
         res_key = keys_col.delete_one({"key": target})
         if res_key.deleted_count:
             bot.send_message(message.chat.id, f"Deleted key `{target}` (1 key removed).", parse_mode='Markdown')
             handle_list(message)
             return
-
         res_name = keys_col.delete_many({"name": target})
         if res_name.deleted_count:
             bot.send_message(message.chat.id,
@@ -476,8 +463,6 @@ def start_bot():
     t = threading.Thread(target=target, daemon=True)
     t.start()
 
-if __name__ == "__main__":
-    ascii_art = pyfiglet.figlet_format("INDia", font="isometric1")
-    print(ascii_art)
-    start_bot()
-    app.run(host=host, port=port)
+ascii_art = pyfiglet.figlet_format("PHAK YOU", font="isometric1")
+print(ascii_art)
+start_bot()
