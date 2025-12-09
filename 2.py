@@ -478,4 +478,4 @@ if __name__ == "__main__":
     ascii_art = pyfiglet.figlet_format("INDia", font="isometric1")
     print(ascii_art)
     start_bot()
-    app.run(host=host, port=port)
+    
